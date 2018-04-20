@@ -22,26 +22,24 @@ main =
 
 type alias Model =
     { ui : UiType
-    , gmap : Maybe Gmap.Model
-    , clicked : Maybe Gmap.LatLng
     }
 
 
 type UiType
-  = Map
+  = Map (Maybe Gmap.Gmap) (Maybe Gmap.LatLng)
   | Text
 
 
 init : ( Model, Cmd Msg )
 init =
-    ( { ui = Map, gmap = Nothing, clicked = Nothing }
+    ( { ui = Map Nothing Nothing }
     , Gmap.initial (Gmap.GmapOpts (Gmap.LatLng 63 63) "cooperative" 10 True True) GmapInit
     )
 
 
 type Msg
     = ToUi UiType
-    | GmapInit (Result Gmap.Error Gmap.Model)
+    | GmapInit (Result Gmap.Error Gmap.Gmap)
     | GmapClicked Gmap.LatLng
     | GmapGeocode (Result Gmap.Error Gmap.GeocodeResults)
     | GmapCircles (Result Gmap.Error Gmap.Circles)
@@ -49,36 +47,37 @@ type Msg
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-  case msg of
-    ToUi ui ->
+  case (model.ui, msg) of
+    (_, ToUi ui) ->
       case ui of
-        Map ->
-          ({model | ui = ui}, Cmd.none)
+        Map Nothing _->
+          ( {model | ui = ui}
+          , Gmap.initial (Gmap.GmapOpts (Gmap.LatLng 63 63) "cooperative" 10 True True) GmapInit)
 
         _ ->
           ({model | ui = ui}, Cmd.none)
 
-    GmapInit (Ok gmapModel) ->
-      ( {model | gmap = Just gmapModel}
+    (Map _ clicked, GmapInit (Ok gmapModel)) ->
+      ( {model | ui = Map (Just gmapModel) clicked}
       , Gmap.geocode gmapModel (Gmap.GeocodeRequest (Gmap.Address "Москва") Nothing Nothing Nothing) GmapGeocode
       )
 
-    GmapInit (Err _) ->
+    (Map _ _, GmapInit (Err _)) ->
       (model, Cmd.none)
 
-    GmapClicked latLng ->
-      ( {model | clicked = Just latLng}
-      , model.gmap
+    (Map gmap _, GmapClicked latLng) ->
+      ( {model | ui = Map gmap (Just latLng)}
+      , gmap
         |> Maybe.map (\v ->
           Gmap.geocode v (Gmap.GeocodeRequest (Gmap.Location latLng) Nothing Nothing Nothing) GmapGeocode
         )
         |> Maybe.withDefault Cmd.none
       )
 
-    GmapGeocode (Ok []) ->
+    (Map _ _, GmapGeocode (Ok [])) ->
       (model, Cmd.none)
 
-    GmapGeocode (Ok results)->
+    (Map gmap _, GmapGeocode (Ok results))->
       let
         bounds =
           results
@@ -117,7 +116,7 @@ update msg model =
                 ]
             in
               ( model,
-                model.gmap
+                gmap
                   |> Maybe.map (\gmap ->
                     Gmap.setCirclesTask gmap circles
                       |> Task.andThen (\result ->
@@ -132,17 +131,20 @@ update msg model =
 
 
 
-    GmapGeocode (Err reason) ->
+    (Map _ _, GmapGeocode (Err reason)) ->
       let
         _ = Debug.log "reason" reason
       in
         (model, Cmd.none)
 
-    GmapCircles data ->
+    (Map _ _, GmapCircles data) ->
       let
         _ = Debug.log "GmapCircles" data
       in
         (model, Cmd.none)
+
+    _ ->
+      (model, Cmd.none)
 
 
 view : Model -> Html Msg
@@ -150,20 +152,20 @@ view model =
   let
     btns =
       Html.div []
-        [ Html.button [Html.Events.onClick <| ToUi Map] [Html.text "To map"]
+        [ Html.button [Html.Events.onClick <| ToUi <| Map Nothing Nothing] [Html.text "To map"]
         , Html.button [Html.Events.onClick <| ToUi Text] [Html.text "To text"]
         ]
   in
     case model.ui of
-      Map ->
+      Map gmap clicked ->
         Html.div []
           [ Html.text <| "Gmap example" ++ (
-            model.clicked
+            clicked
               |> Maybe.map (\v -> " (" ++ (toString v.lat) ++ ", " ++ (toString v.lng) ++ ")")
               |> Maybe.withDefault ""
             )
           , btns
-          , model.gmap
+          , gmap
               |> Maybe.map mapView
               |> Maybe.withDefault (Html.text "Loading")
           ]
@@ -176,19 +178,20 @@ view model =
           ]
 
 
-mapView : Gmap.Model -> Html Msg
-mapView model =
-  Gmap.toHtml model
+mapView : Gmap.Gmap -> Html Msg
+mapView gmap =
+  Gmap.toHtml gmap
     [ Html.Attributes.style [("width", "300px"), ("height", "300px")]
     ]
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-  case model.gmap of
-    Nothing ->
-      Sub.none
-
-    Just gmap ->
+  case model.ui of
+    Map (Just gmap) _ ->
       Sub.batch
         [ Gmap.onClick gmap GmapClicked ]
+
+    _ ->
+      Sub.none
+

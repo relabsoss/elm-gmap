@@ -3,7 +3,6 @@ var _relabsoss$elm_gmap$Native_Gmap = function() {
   var
     scheduler = _elm_lang$core$Native_Scheduler,
     gmapInitialized = false,
-    maps = {},
     callbacks = [],
     geocoder = undefined,
     defaultGmapOpts = {
@@ -42,7 +41,11 @@ var _relabsoss$elm_gmap$Native_Gmap = function() {
     self.remove = function () {
       self.gmapInstance = undefined;
       self.bounds = undefined;
-      self.node.remove();
+      if (self.node)
+        self.node.remove();
+      self.node = undefined;
+      self.onClick = undefined;
+      self.onDblClick = undefined;
     };
 
     return this;
@@ -63,7 +66,7 @@ var _relabsoss$elm_gmap$Native_Gmap = function() {
       if (self.onClick) {
         var latLng = {lat: e.latLng.lat(), lng: e.latLng.lng()};
         _elm_lang$core$Native_Scheduler.rawSpawn(
-          A2(self.onClick, self.id, latLng)
+          A2(self.onClick, self, latLng)
         );
       }
     });
@@ -73,7 +76,7 @@ var _relabsoss$elm_gmap$Native_Gmap = function() {
       if (self.onDblClick) {
         var latLng = {lat: e.latLng.lat(), lng: e.latLng.lng()};
         _elm_lang$core$Native_Scheduler.rawSpawn(
-          A2(self.onDblClick, self.id, latLng)
+          A2(self.onDblClick, self, latLng)
         );
       }
     });
@@ -92,36 +95,35 @@ var _relabsoss$elm_gmap$Native_Gmap = function() {
   function init(opts, gmapOpts) {
     return scheduler.nativeBinding(function(callback){
       try {
-        var map = new Map(opts, gmapOpts, function (self) {
-          callback(scheduler.succeed(self.id));
+        new Map(opts, gmapOpts, function (self) {
+          callback(scheduler.succeed(self));
         });
-        maps[map.id] = map;
         return function () {};
       } catch (err) {
         console.error("initialisation fails", err);
-        callback(scheduler.fail({ ctor: 'InitializationFail', _0: id }));
+        callback(scheduler.fail({ ctor: 'InitializationFail' }));
       }
     });
   }
 
-  function destroy(id) {
+  function destroy(map) {
     return scheduler.nativeBinding(function(callback) {
       try {
-        var map = maps[id];
-        if (map) {
-          map.remove();
-          delete maps[id];
-        }
-        callback(scheduler.succeed(id));
+        map.remove();
+        callback(scheduler.succeed());
       } catch (err) {
         console.error("destruction fails", err);
-        callback(scheduler.fail({ ctor: 'DestructionFail', _0: id }));
+        callback(scheduler.fail({ ctor: 'DestructionFail' }));
       }
     });
   }
 
-  function geocode(id, request) {
-    return gmapHelper(id, function (map, callback) {
+  function id(map) {
+    return map.id;
+  }
+
+  function geocode(map, request) {
+    return gmapHelper(map, function (map, callback) {
       geocoder.geocode(request, function(results, status) {
         if (status === 'OK') {
           callback(scheduler.succeed(results.map(function (i) {
@@ -142,24 +144,24 @@ var _relabsoss$elm_gmap$Native_Gmap = function() {
           })));
         } else {
           console.log('Geocoder failed due to: ' + status);
-          callback(scheduler.fail({ ctor: 'GeocodeFail', _0: id }));
+          callback(scheduler.fail({ ctor: 'GeocodeFail' }));
         }
       });
       return function () {};
     }, 'GeocodeFail');
   }
 
-  function setBounds(id, bounds) {
-    return gmapHelper(id, function (map, callback) {
+  function setBounds(map, bounds) {
+    return gmapHelper(map, function (map, callback) {
       map.bounds = bounds;
       map.gmapInstance.fitBounds(map.bounds);
       callback(scheduler.succeed(bounds));
     }, 'SetFail');
   }
 
-  function setCircles(id, circles) {
-    return gmapHelper(id, function (map, callback) {
-      var previous = map.circles.map(function (i) {
+  function setCircles(map, circles) {
+    return gmapHelper(map, function (map, callback) {
+      map.circles.map(function (i) {
         i.setMap(null);
         return i;
       });
@@ -173,27 +175,20 @@ var _relabsoss$elm_gmap$Native_Gmap = function() {
     }, 'SetFail');
   }
 
-  function gmapHelper(id, handler, error) {
+  function gmapHelper(map, handler, error) {
     return scheduler.nativeBinding(function(callback) {
       try {
-        var map = maps[id];
-        if (!map) {
-          callback(scheduler.fail({ ctor: 'MapNotDefined', _0: id }));
-          return;
-        }
         return handler(map, callback);
       } catch (err) {
         console.error(error, err);
-        callback(scheduler.fail({ ctor: error, _0: id }));
+        callback(scheduler.fail({ ctor: error }));
       }
     });
   }
 
-  function toHtml(model, factList) {
+  function toHtml(map, factList) {
 
-    function render(model) {
-      var id = model.id;
-      var map = maps[id];
+    function render(map) {
       return map.node;
     }
 
@@ -208,7 +203,7 @@ var _relabsoss$elm_gmap$Native_Gmap = function() {
 
     return _elm_lang$virtual_dom$Native_VirtualDom.custom(
       factList,
-      model,
+      map,
       impl
     );
   }
@@ -216,6 +211,7 @@ var _relabsoss$elm_gmap$Native_Gmap = function() {
   return {
     init: F2(init),
     destroy: destroy,
+    id: id,
     geocode: F2(geocode),
 
     setBounds: F2(setBounds),

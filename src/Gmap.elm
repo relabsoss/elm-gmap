@@ -14,7 +14,7 @@ effect module Gmap
         , onClick
 
         , Error
-        , Model
+        , Gmap
         , GmapOpts
         , LatLng
         , Circle
@@ -36,7 +36,7 @@ Google map elm interface
 @docs initial, toHtml, geocodeTask, geocode, onClick, setCircles, setCirclesTask, setBounds,
       setBoundsTask, boundsToCircle
 
-@docs Model, Error, GmapOpts, LatLng, Circle, Circles,
+@docs Gmap, Error, GmapOpts, LatLng, Circle, Circles,
       GeocodeResults, GeocodeResult, GeocodeAddressComponent, GeocodeAddressComponents,
       GeocodeGeometry, GeocodeRequest, GeocodeRequestRestrictions, GeocodeRequestLookup
 -}
@@ -52,18 +52,18 @@ import Native.Gmap
 
 
 type MyCmd msg
-  = Init GmapOpts (Result Error Model -> msg)
-  | SetCircles Model (List Circle) (Result Error (List Circle) -> msg)
+  = Init GmapOpts (Result Error Gmap -> msg)
+  | SetCircles Gmap (List Circle) (Result Error (List Circle) -> msg)
 
 
 type MySub msg
-  = OnClick Model (LatLng -> msg)
-  | OnDblClick Model (LatLng -> msg)
+  = OnClick Gmap (LatLng -> msg)
+  | OnDblClick Gmap (LatLng -> msg)
 
 
 type Msg
-  = OnClicked Int LatLng
-  | OnDblClicked Int LatLng
+  = OnClicked Gmap LatLng
+  | OnDblClicked Gmap LatLng
 
 
 type alias State msg =
@@ -88,9 +88,7 @@ type Error
 
 {-| Google map component model
 -}
-type alias Model =
-  { id : Int
-  }
+type Gmap = Gmap
 
 
 {-| Google map options
@@ -208,24 +206,24 @@ type alias LatLng =
 
 {-| Make initial model
 -}
-initial : GmapOpts -> (Result Error Model -> msg) -> Cmd msg
+initial : GmapOpts -> (Result Error Gmap -> msg) -> Cmd msg
 initial gmapOpts tagger =
   command (Init gmapOpts tagger)
 
 
 {-| Geodecode command
 -}
-geocode : Model -> GeocodeRequest -> (Result Error GeocodeResults -> msg) -> Cmd msg
-geocode model geocodeRequest tagger =
-  geocodeTask model geocodeRequest
+geocode : Gmap -> GeocodeRequest -> (Result Error GeocodeResults -> msg) -> Cmd msg
+geocode gmap geocodeRequest tagger =
+  geocodeTask gmap geocodeRequest
     |> Task.attempt tagger
 
 
 {-| Geodecode task
 -}
-geocodeTask : Model -> GeocodeRequest -> Task.Task Error GeocodeResults
-geocodeTask model geocodeRequest =
-  Native.Gmap.geocode model.id (encodeGeocodeRequest geocodeRequest)
+geocodeTask : Gmap -> GeocodeRequest -> Task.Task Error GeocodeResults
+geocodeTask gmap geocodeRequest =
+  Native.Gmap.geocode gmap (encodeGeocodeRequest geocodeRequest)
     |> Task.andThen (\v ->
       case Json.Decode.decodeValue decodeGeocodeResults v of
         Ok data ->
@@ -238,17 +236,17 @@ geocodeTask model geocodeRequest =
 
 {-| Set google map circles. Current circles will be removed
 -}
-setCircles : Model -> Circles -> (Result Error Circles -> msg) -> Cmd msg
-setCircles model circles tagger =
-  setCirclesTask model circles
+setCircles : Gmap -> Circles -> (Result Error Circles -> msg) -> Cmd msg
+setCircles gmap circles tagger =
+  setCirclesTask gmap circles
     |> Task.attempt tagger
 
 
 {-| Set google map circles task. Current circles will be removed
 -}
-setCirclesTask : Model -> Circles -> Task.Task Error Circles
-setCirclesTask model circles =
-  Native.Gmap.setCircles model.id (encodeCircles circles)
+setCirclesTask : Gmap -> Circles -> Task.Task Error Circles
+setCirclesTask gmap circles =
+  Native.Gmap.setCircles gmap (encodeCircles circles)
     |> Task.andThen (\v ->
         case Json.Decode.decodeValue decodeCircles v of
           Ok data ->
@@ -260,17 +258,17 @@ setCirclesTask model circles =
 
 {-| Set google map bounds
 -}
-setBounds : Model -> Bounds -> (Result Error Bounds -> msg) -> Cmd msg
-setBounds model bounds tagger =
-  setBoundsTask model bounds
+setBounds : Gmap -> Bounds -> (Result Error Bounds -> msg) -> Cmd msg
+setBounds gmap bounds tagger =
+  setBoundsTask gmap bounds
     |> Task.attempt tagger
 
 
 {-| Set google map bounds task
 -}
-setBoundsTask : Model -> Bounds -> Task.Task Error Bounds
-setBoundsTask model bounds =
-  Native.Gmap.setBounds model.id (encodeBounds bounds)
+setBoundsTask : Gmap -> Bounds -> Task.Task Error Bounds
+setBoundsTask gmap bounds =
+  Native.Gmap.setBounds gmap (encodeBounds bounds)
     |> Task.andThen (\v ->
       case Json.Decode.decodeValue decodeBounds v of
         Ok data ->
@@ -283,14 +281,14 @@ setBoundsTask model bounds =
 
 {-| On click subscription
 -}
-onClick : Model -> (LatLng -> msg) -> Sub msg
-onClick model tagger =
-  subscription (OnClick model tagger)
+onClick : Gmap -> (LatLng -> msg) -> Sub msg
+onClick gmap tagger =
+  subscription (OnClick gmap tagger)
 
 
 {-| Google map view
 -}
-toHtml : Model -> List (Html.Attribute msg) -> Html.Html msg
+toHtml : Gmap -> List (Html.Attribute msg) -> Html.Html msg
 toHtml =
   Native.Gmap.toHtml
 
@@ -364,10 +362,10 @@ onCmdEffects cmds router state =
 
     Init gmapOpts tagger :: rest ->
       let
-        sendClick tagger idValue value =
-          case (Json.Decode.decodeValue Json.Decode.int idValue, Json.Decode.decodeValue decodeLatLng value) of
-            (Ok id, Ok latLng) ->
-              Platform.sendToSelf router (tagger id latLng)
+        sendClick tagger gmap value =
+          case Json.Decode.decodeValue decodeLatLng value of
+            Ok latLng ->
+              Platform.sendToSelf router (tagger gmap latLng)
 
             any ->
               let
@@ -376,12 +374,12 @@ onCmdEffects cmds router state =
                 Task.succeed ()
 
         opts =
-          { onClick = \id value -> sendClick OnClicked id value
-          , onDblClick = \id value -> sendClick OnDblClicked id value
+          { onClick = \gmap value -> sendClick OnClicked gmap value
+          , onDblClick = \gmap value -> sendClick OnDblClicked gmap value
           }
 
         success instance =
-          Platform.sendToApp router (tagger <| Ok <| Model instance)
+          Platform.sendToApp router (tagger <| Ok instance)
 
         fail error =
           Platform.sendToApp router (tagger <| Err error)
@@ -398,8 +396,8 @@ onCmdEffects cmds router state =
 onSelfMsg : Platform.Router msg Msg -> Msg -> State msg -> Task.Task Never (State msg)
 onSelfMsg router msg state =
   case msg of
-    OnClicked id latLng ->
-      Dict.get id state.clickSubs
+    OnClicked gmap latLng ->
+      Dict.get (id gmap) state.clickSubs
         |> Maybe.map (\subs ->
           List.map (\tagger ->
             Platform.sendToApp router (tagger latLng)
@@ -410,8 +408,8 @@ onSelfMsg router msg state =
         |> Task.andThen (\_ -> Task.succeed state)
         |> Task.onError (\_ -> Task.succeed state)
 
-    OnDblClicked id latLng  ->
-      Dict.get id state.clickSubs
+    OnDblClicked gmap latLng  ->
+      Dict.get (id gmap) state.clickSubs
         |> Maybe.map (\subs ->
           List.map (\tagger ->
             Platform.sendToApp router (tagger latLng)
@@ -429,11 +427,11 @@ buildSubDict subs (clickSubs, dblClickSubs) =
     [] ->
       (clickSubs, dblClickSubs)
 
-    OnClick model tagger :: rest ->
-      buildSubDict rest ((Dict.update model.id (add tagger) clickSubs), dblClickSubs)
+    OnClick gmap tagger :: rest ->
+      buildSubDict rest ((Dict.update (id gmap) (add tagger) clickSubs), dblClickSubs)
 
-    OnDblClick model tagger :: rest ->
-      buildSubDict rest (clickSubs, (Dict.update model.id (add tagger) dblClickSubs))
+    OnDblClick gmap tagger :: rest ->
+      buildSubDict rest (clickSubs, (Dict.update (id gmap) (add tagger) dblClickSubs))
 
 
 add : a -> Maybe (List a) -> Maybe (List a)
@@ -444,6 +442,11 @@ add value maybeList =
 
     Just list ->
       Just (value :: list)
+
+
+id : Gmap -> Int
+id =
+  Native.Gmap.id
 
 
 encodeAddress : Maybe String -> Json.Encode.Value
